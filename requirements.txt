@@ -1,0 +1,3 @@
+pandas
+prefect>=3,<4
+pytest
