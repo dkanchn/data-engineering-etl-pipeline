@@ -1,16 +1,12 @@
 # Data Engineering ETL Pipeline
 
-An ETL pipeline project built as part of a Data Engineer technical assessment.
+โปรเจกต์ ETL Pipeline ที่จัดทำขึ้นเป็นส่วนหนึ่งของ Data Engineer Technical Assessment
 
-## Overview
-
-This project focuses on extracting, cleaning, transforming, and loading
-customer and order data into an analytical SQLite database for
-Customer Lifetime Value (CLV) analysis.
+โปรเจกต์นี้มีเป้าหมายเพื่อ Extract ข้อมูลดิบจาก SQLite views จากนั้นทำการ Clean และ Transform ข้อมูลด้วย Python และ Pandas ก่อน Load ข้อมูลที่ผ่านการทำความสะอาดแล้วเข้าสู่ Analytical SQLite Database เพื่อใช้สำหรับการวิเคราะห์ Customer Lifetime Value (CLV)
 
 ## Tech Stack
 
-- Python
+- Python 3.12+
 - SQLite
 - Pandas
 - Prefect
@@ -18,44 +14,165 @@ Customer Lifetime Value (CLV) analysis.
 
 ## Part 1: Data Exploration
 
-Query ทั้งหมดที่ใช้สำรวจอยู่ในไฟล์ `exploration.sql` โดยเริ่มจากขั้นตอน
-ดูโครงสร้างตาราง ดูว่าแต่ละ view มีคอลัมน์อะไรบ้างและเก็บข้อมูล
-ชนิดไหน จากนั้นดูข้อมูลจริงและตรวจหาความผิดปกติ
-เมื่อรันกับ `vw_raw_customers` และ `vw_raw_orders` พบปัญหาดังต่อไปนี้:
+Query สำหรับการสำรวจข้อมูลทั้งหมดอยู่ในไฟล์ `exploration.sql`
 
-### 1. ข้อมูลลูกค้าซ้ำ โดยมีค่าขัดแย้งกัน
-`customer_id = 1` (Alice Smith) และ `customer_id = 2` (Bob Jones)
-แต่ละคนปรากฏใน `vw_raw_customers` ถึง **2 แถว** โดยมีค่า `email`,
-`phone`, และ `signup_date` ต่างกันในแต่ละแถว ลักษณะนี้เหมือนเกิดจากการ
-ลงทะเบียนซ้ำ หรือระบบ insert แถวใหม่แทนที่จะ update แถวเดิม ถ้าไม่
-กำจัดความซ้ำนี้ก่อน จะทำให้จำนวนลูกค้าที่นับได้สูงเกินความเป็นจริง
+เริ่มจากการตรวจสอบโครงสร้างของแต่ละ view และชนิดข้อมูลของแต่ละ column จากนั้นตรวจสอบข้อมูลจริงเพื่อค้นหา Data Quality Issues ที่อาจส่งผลต่อการทำความสะอาดและการวิเคราะห์ข้อมูล
 
-### 2. Foreign key ที่อ้างอิงไปยังลูกค้าที่ไม่มีอยู่จริง (Orphaned FK)
-คำสั่งซื้อ `order_id = 106` และ `118` อ้างอิงไปยัง `customer_id = 99`
-ซึ่งไม่มีอยู่ในตาราง `vw_raw_customers` เลย หากนำสองตารางนี้มา join กัน
-โดยไม่จัดการกรณีนี้ไว้ล่วงหน้า แถวเหล่านี้จะถูกตัดทิ้งไปเงียบๆ หรือ
-ทำให้ผลลัพธ์คลาดเคลื่อน
+Source views ที่ทำการสำรวจ ได้แก่:
 
-### 3. ยอดเงินในคำสั่งซื้อผิดปกติ
-คำสั่งซื้อ `order_id = 103` และ `113` มี `total_amount` เป็น**ค่าติดลบ**
-(-50 และ -100) โดยทั้งคู่มี `status = 'SYSTEM_ERROR'` ส่วนคำสั่งซื้อ
-`order_id = 114` มี `total_amount` เท่ากับ `0` พอดี ทั้งสามกรณีนี้ไม่ใช่
-ยอดขายที่สมเหตุสมผล และจะทำให้การคำนวณยอดรายได้รวมผิดเพี้ยนถ้าไม่กรองออก
+- `vw_raw_customers`
+- `vw_raw_orders`
+- `vw_exchange_rates`
 
-### 4. ฟิลด์สำคัญในตาราง orders หายไป (NULL)
-- `currency` เป็น `NULL` ในคำสั่งซื้อ `107` และ `116`
-- `order_date` เป็น `NULL` ในคำสั่งซื้อ `117`
+### Data Quality Issues ที่พบ
 
-### 5. รูปแบบเบอร์โทรศัพท์ไม่สม่ำเสมอ
-คอลัมน์ `phone` ในตาราง `vw_raw_customers` (มีข้อมูลแค่ 12 แถว) มีรูปแบบ
-ที่แตกต่างกันอย่างน้อย 6 แบบ เช่น `+1 (555) 123-4567`,
-`555-987-6543`, `1234567890`, `Ext 444`, `1-800-555-DINO` ทำให้ไม่
-สามารถ parse หรือ validate เบอร์โทรได้อย่างน่าเชื่อถือด้วยรูปแบบเดียว
+1. **Duplicate customer records**  
+   `customer_id = 1` และ `customer_id = 2` ปรากฏใน `vw_raw_customers` คนละ 2 records โดยข้อมูลบางส่วน เช่น `email`, `phone` และ `signup_date` แตกต่างกัน  
+   **Handling:** เก็บ record ที่มี `signup_date` ล่าสุดของแต่ละ `customer_id`
 
-### 6. ข้อมูลอัตราแลกเปลี่ยนครอบคลุมไม่ครบช่วงเวลา
-ตาราง `vw_exchange_rates` มีข้อมูลอัตราแลกเปลี่ยนตั้งแต่วันที่
-`2023-05-01` ถึง `2023-05-05` เท่านั้น แต่ `vw_raw_orders` มีวันที่ของ
-คำสั่งซื้อยาวไปถึง `2023-05-14` ดังนั้นคำสั่งซื้อที่เป็นสกุลเงินอื่น
-นอกจาก USD และเกิดขึ้นหลังวันที่ `2023-05-05` (เช่นคำสั่งซื้อที่เป็น
-EUR/GBP/JPY ในช่วงหลัง) จะไม่มีอัตราแลกเปลี่ยนตรงกับวันที่นั้นพอดี
-จำเป็นต้องมีวิธีจัดการ
+2. **Orphaned customer references**  
+   `order_id = 106` และ `118` อ้างอิงไปยัง `customer_id = 99` ซึ่งไม่มีอยู่ใน `vw_raw_customers`  
+   ปัญหานี้ถูกระบุไว้ระหว่าง Data Exploration แต่ไม่ได้ Filter ออก เนื่องจาก Assignment ไม่ได้กำหนด Cleaning Rule สำหรับกรณีนี้
+
+3. **Invalid order amounts**  
+   `order_id = 103`, `113` และ `114` มี `total_amount` เท่ากับ `-50`, `-100` และ `0` ตามลำดับ ซึ่งเป็นค่าที่ไม่ถูกต้องสำหรับ Order  
+   **Handling:** Filter Orders ที่มี `total_amount <= 0` ออก
+
+4. **Missing values**  
+   พบ `currency` เป็น `NULL` ใน `order_id = 107` และ `116` และ `order_date` เป็น `NULL` ใน `order_id = 117`  
+   **Handling:** Missing `currency` จะถูกถือว่าเป็น `USD` ตาม Assignment Requirement
+
+5. **Inconsistent phone number formats**  
+   `phone` มีหลายรูปแบบ เช่น `+1 (555) 123-4567`, `555-987-6543` และ `1234567890` ทำให้รูปแบบข้อมูลไม่สม่ำเสมอ  
+   **Handling:** Remove non-numeric characters ออกจาก `phone`
+
+6. **Incomplete exchange rate coverage**  
+   Exchange Rate บางวันที่ไม่มีข้อมูลที่ตรงกับ `order_date` ของ Order  
+   **Handling:** หากไม่พบ Exchange Rate จะถือว่า Order เป็น USD และใช้ Exchange Rate เท่ากับ `1.0` ตาม Assignment Requirement
+
+## Part 2: Data Cleaning & ETL Pipeline
+
+ETL Pipeline ถูก implement อยู่ในไฟล์ `pipeline.py` โดยใช้ Prefect สำหรับการ Orchestration
+
+Pipeline ประกอบด้วย 3 ขั้นตอนหลัก:
+
+- **Extract:** อ่านข้อมูลจาก `vw_raw_customers`, `vw_raw_orders` และ `vw_exchange_rates`
+- **Transform:** Clean customer data, Filter invalid orders, Handle missing values และ Convert order amounts เป็น USD
+- **Load:** เขียนข้อมูลที่ผ่านการ Clean แล้วลงใน `analytics.db` เป็นตาราง `dim_customers` และ `fct_orders`
+
+Pipeline ใช้ Prefect `@task` และ `@flow` decorators รวมถึงมี Logging และ Error Handling ในแต่ละ Task
+
+### Run the Pipeline
+
+สร้างและ Activate Virtual Environment จากนั้นติดตั้ง Dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+Run Pipeline:
+
+```bash
+python pipeline.py
+```
+
+เมื่อ Pipeline ทำงานสำเร็จ จะสร้าง:
+
+```text
+analytics.db
+```
+
+โดยมีผลลัพธ์:
+
+```text
+dim_customers = 10 records
+fct_orders    = 17 records
+```
+
+## Part 3: Unit Testing
+
+Unit Tests อยู่ในไฟล์ `test_pipeline.py` และใช้ `pytest` เป็น Testing Framework
+
+Tests ถูกออกแบบให้ทดสอบ Transformation Logic แบบ Independent จาก Database โดยใช้ Dummy DataFrame แทนการเชื่อมต่อกับ Database จริง
+
+ครอบคลุมการทดสอบ:
+
+- Phone number standardization
+- Customer deduplication และ data cleaning
+- Order filtering และ currency conversion
+
+### Run Tests
+
+```bash
+pytest
+```
+
+Expected result:
+
+```text
+3 passed
+```
+
+## Part 4: Analytical Query
+
+SQL สำหรับคำนวณ Customer Lifetime Value (CLV) อยู่ในไฟล์ `clv_report.sql`
+
+Query ใช้ข้อมูลจาก:
+
+- `dim_customers`
+- `fct_orders`
+
+และแสดงผลลัพธ์ดังนี้:
+
+- `customer_id`
+- `full_name`
+- `total_orders_placed`
+- `lifetime_value_usd`
+- `customer_cohort`
+
+โดย `customer_cohort` แสดงเดือนและปีที่ลูกค้าสมัครในรูปแบบ `YYYY-MM`
+
+ผลลัพธ์ถูกจัดเรียงตาม `lifetime_value_usd` จากมากไปน้อย
+
+Customer ที่ไม่มี Valid Orders จะยังคงปรากฏใน Report โดยมี:
+
+```text
+total_orders_placed = 0
+lifetime_value_usd = 0
+```
+
+### Run the CLV Report
+
+หลังจาก Run ETL Pipeline แล้ว สามารถ Run:
+
+```bash
+sqlite3 analytics.db < clv_report.sql
+```
+
+## Running the Project
+
+สามารถ Run โปรเจกต์ตามลำดับดังนี้:
+
+### 1. Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 2. Run ETL Pipeline
+
+```bash
+python pipeline.py
+```
+
+### 3. Run Unit Tests
+
+```bash
+pytest
+```
+
+### 4. Run CLV Report
+
+```bash
+sqlite3 analytics.db < clv_report.sql
+```
