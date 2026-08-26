@@ -12,9 +12,82 @@
 - Prefect
 - Pytest
 
+## Running the Project
+
+### 1. Clone the Repository
+
+```bash
+git clone https://github.com/dkanchn/data-engineering-etl-pipeline.git
+cd data-engineering-etl-pipeline
+```
+
+### 2. Add the Source Database
+
+นำไฟล์ `shopdata.db` มาไว้ใน Project Root directory เดียวกับ `pipeline.py`
+
+โครงสร้าง Project ควรเป็นดังนี้:
+
+```text
+data-engineering-etl-pipeline/
+├── shopdata.db   -->   ต้องนำไฟล์จาก assesment มาใส่
+├── pipeline.py
+├── test_pipeline.py
+├── exploration.sql
+├── clv_report.sql
+├── requirements.txt
+├── README.md
+└── .gitignore
+```
+
+> **Note:** `shopdata.db` ไม่ได้ถูกเก็บไว้ใน Git repository เนื่องจากเป็น Source Database ที่ได้รับสำหรับการทำ Assessment
+
+### 3. Create a Virtual Environment
+
+```bash
+python -m venv .venv
+```
+
+### 4. Activate the Virtual Environment
+
+**Git Bash (Windows):**
+
+```bash
+source .venv/Scripts/activate
+```
+
+**Command Prompt (Windows):**
+
+```cmd
+.venv\Scripts\activate
+```
+
+**PowerShell (Windows):**
+
+```powershell
+.venv\Scripts\Activate.ps1
+```
+
+**macOS / Linux:**
+
+```bash
+source .venv/bin/activate
+```
+
+หลังจาก Activate สำเร็จ ควรเห็น `(.venv)` อยู่ด้านหน้า command line
+
+### 5. Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
 ## Part 1: Data Exploration
 
 Query สำหรับการสำรวจข้อมูลทั้งหมดอยู่ในไฟล์ `exploration.sql`
+
+```bash
+sqlite3 shopdata.db < exploration.sql
+```
 
 เริ่มจากการตรวจสอบโครงสร้างของแต่ละ view และชนิดข้อมูลของแต่ละ column จากนั้นตรวจสอบข้อมูลจริงเพื่อค้นหา Data Quality Issues ที่อาจส่งผลต่อการทำความสะอาดและการวิเคราะห์ข้อมูล
 
@@ -63,12 +136,6 @@ Pipeline ประกอบด้วย 3 ขั้นตอนหลัก:
 Pipeline ใช้ Prefect `@task` และ `@flow` decorators รวมถึงมี Logging และ Error Handling ในแต่ละ Task
 
 ### Run the Pipeline
-
-สร้างและ Activate Virtual Environment จากนั้นติดตั้ง Dependencies:
-
-```bash
-pip install -r requirements.txt
-```
 
 Run Pipeline:
 
@@ -149,30 +216,4 @@ lifetime_value_usd = 0
 sqlite3 analytics.db < clv_report.sql
 ```
 
-## Running the Project
-
-สามารถ Run โปรเจกต์ตามลำดับดังนี้:
-
-### 1. Install Dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### 2. Run ETL Pipeline
-
-```bash
-python pipeline.py
-```
-
-### 3. Run Unit Tests
-
-```bash
-pytest
-```
-
-### 4. Run CLV Report
-
-```bash
-sqlite3 analytics.db < clv_report.sql
-```
+ผลลัพธ์จะถูกจัดเรียงตาม `lifetime_value_usd` จากมากไปน้อย
